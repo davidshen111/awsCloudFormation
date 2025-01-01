@@ -47,7 +47,7 @@ jobs:
     uses: ./.github/workflows/reusable-deploy.yml
     with:
       stack-name: s3-stack
-      template-file: backend/s3.yaml
+      template-file: network/s3.yaml
       parameter-others: |
         EnvironmentName=dev
       action: deploy

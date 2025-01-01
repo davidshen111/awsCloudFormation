@@ -35,13 +35,13 @@ Note: RDS is not implemented in this project; a containerized database is used i
 │ ├── s3-cloudfront.yaml   # Includes S3 and CloudFront configuration
 ├── backend                # Backend service templates
 │ ├── ecs.yaml             # ECS services, including App and PostgreSQL containers
-│ ├── s3.yaml              # S3 storage configuration
 ├── security               # Security service templates
 │ ├── cognito.yaml         # Cognito User Pool and Identity Pool
 ├── network                # Networking modules
 │ ├── vpc.yaml             # Creates VPC and subnets
 │ ├── alb.yaml             # Creates ALB and security groups
 │ ├── alb-https.yaml       # Creates ALB listener and integrates with Cognito for authentication
+│ ├── s3.yaml              # S3 storage configuration
 ├── registry               # Image management module
 │ ├── ecr.yaml             # ECR repositories
 ├── shared                 # Shared modules
