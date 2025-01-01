@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Elastic Container Registry (ECR) for Docker Images
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Deployment environment (e.g., dev, staging, prod)
+
+Resources:
+  # ECR Repository
+  ECRApplicationRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}-application-repo"
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire untagged images older than 30 days",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 30
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowPullPush
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:role/github-actions-role"
+            Action:
+              - "ecr:BatchCheckLayerAvailability"
+              - "ecr:CompleteLayerUpload"
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:InitiateLayerUpload"
+              - "ecr:PutImage"
+              - "ecr:ListImages"
+              - "ecr:BatchGetImage"
+              - "ecr:DeleteRepositoryPolicy"
+
+  # PostgreSQL ECR Repository
+  ECRPostgresRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}-postgres-repo"
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire untagged images older than 30 days",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 30
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowPullPush
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:role/github-actions-role"
+            Action:
+              - "ecr:BatchCheckLayerAvailability"
+              - "ecr:CompleteLayerUpload"
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:InitiateLayerUpload"
+              - "ecr:PutImage"
+              - "ecr:ListImages"
+              - "ecr:BatchGetImage"
+
+Outputs:
+  ECRApplicationRepositoryURI:
+    Description: URI of the Application ECR repository
+    Value: !GetAtt ECRApplicationRepository.RepositoryUri
+
+  ECRPostgresRepositoryURI:
+    Description: URI of the PostgreSQL ECR repository
+    Value: !GetAtt ECRPostgresRepository.RepositoryUri

@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Cognito User Pool and Identity Pool for Authentication
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Deployment environment (e.g., dev, staging, prod)
+
+  AdminIAMRoleArn:
+    Type: String
+    Description: Admin IAM Role ARN
+
+  ViewerIAMRoleArn:
+    Type: String
+    Description: Viewer IAM Role ARN
+
+  ALBDNS:
+    Type: String
+    Description: ALB DNS Name
+
+Resources:
+  # Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${EnvironmentName}-user-pool"
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      Schema:
+        - Name: email
+          Required: true
+          Mutable: false
+
+  # Cognito User Pool Client
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${EnvironmentName}-user-pool-client"
+      UserPoolId: !Ref UserPool
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      GenerateSecret: true
+      CallbackURLs:
+        - !Sub "https://${ALBDNS}/oauth2/idpresponse"
+      LogoutURLs:
+        - !Sub "https://${ALBDNS}/logout"
+      SupportedIdentityProviders:
+        - COGNITO
+
+  CognitoAdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Admin
+      UserPoolId: !Ref UserPool
+      RoleArn:  !Ref AdminIAMRoleArn
+
+  CognitoViewerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Viewer
+      UserPoolId: !Ref UserPool
+      RoleArn: !Ref ViewerIAMRoleArn
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "${EnvironmentName}-my-app-${AWS::Region}-${AWS::AccountId}"
+      UserPoolId: !Ref UserPool
+
+Outputs:
+
+  CognitoUserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+
+  CognitoUserPoolArn:
+    Description: Cognito User Pool Arn
+    Value: !GetAtt UserPool.Arn
+
+  CognitoUserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient
+
+  CognitoUserPoolDomain:
+    Description: Cognito User Pool Domain
+    Value: !Sub "${EnvironmentName}-my-app-${AWS::Region}-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com"

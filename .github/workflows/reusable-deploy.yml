@@ -1,0 +1,146 @@
+name: Reusable Deploy Workflow
+
+on:
+  workflow_call:
+    inputs:
+      # The CloudFormation stack name to deploy or delete
+      stack-name:
+        required: true
+        type: string
+
+      # Path to the CloudFormation template file
+      template-file:
+        required: true
+        type: string
+
+      # Action type: either deploy or delete
+      action:
+        required: true
+        type: string
+
+      # Static parameters provided directly by the user
+      parameter-others:
+        required: false
+        type: string
+
+      # Dynamic parameters in the format stack_name:key1,key2
+      parameter-stacks:
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Checkout the repository code
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Step 2: Configure AWS credentials for CLI commands
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-role
+          audience: sts.amazonaws.com
+
+      # Step 3: Replace the placeholder in parameter-others with the actual secret value
+      - name: Replace the placeholder with actual secret
+        run: |
+          # Fetch the secret value using the secret name passed from the parent workflow
+          AWS_ACCOUNT_ID_SECRET="${{ secrets.AWS_ACCOUNT_ID }}" 
+          AWS_CERTIFICATE_ARN="${{ secrets.AWS_CERTIFICATE_ARN}}"
+          
+          # Replace the placeholder in parameter-others with the actual secret value
+          PARAMETER_OTHERS="${{ inputs.parameter-others }}"
+          ESCAPED_AWS_ACCOUNT_ID_SECRET=$(echo "$AWS_ACCOUNT_ID_SECRET" | sed 's/[\/&]/\\&/g')
+          ESCAPED_AWS_CERTIFICATE_ARN=$(echo "$AWS_CERTIFICATE_ARN" | sed 's/[\/&]/\\&/g')
+          PARAMETER_OTHERS=$(echo "$PARAMETER_OTHERS" | sed "s/secrets.AWS_ACCOUNT_ID/$ESCAPED_AWS_ACCOUNT_ID_SECRET/")
+          PARAMETER_OTHERS=$(echo "$PARAMETER_OTHERS" | sed "s/secrets.AWS_CERTIFICATE_ARN/$ESCAPED_AWS_CERTIFICATE_ARN/")
+          
+          # Save the modified parameter-others string into GITHUB_ENV for later use
+          echo "parameter_others=$PARAMETER_OTHERS" >> $GITHUB_ENV
+
+      # Step 4: Fetch outputs for dynamic parameters (if parameter-stacks is provided)
+      - name: Fetch Outputs for Dynamic Parameters
+        id: fetch-outputs
+        if: ${{ inputs.parameter-stacks != '' }}
+        run: |
+          # Function to get specific CloudFormation stack output by key
+          get_output_value() {
+            aws cloudformation describe-stacks \
+              --stack-name "$1" \
+              --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" \
+              --output text
+          }
+
+          dynamic_parameters="" # Initialize dynamic parameters string
+          
+          # Process each stack_name:key1,key2 pair
+          while IFS=: read -r stack keys; do
+            # Ignore empty lines
+            if [[ -z "$stack" || -z "$keys" ]]; then
+              continue
+            fi
+          
+            # Extract keys and fetch corresponding values
+            IFS=',' read -r -a key_array <<< "$keys"
+            for key in "${key_array[@]}"; do
+              value=$(get_output_value "$stack" "$key")
+              if [ -z "$value" ]; then
+                echo "Failed to retrieve value for key: $key from stack: $stack" >&2
+                exit 1
+              fi
+          
+              # Check if the key is ALBDNS, convert value to lowercase
+              if [[ "$key" == "ALBDNS" ]]; then
+                value=$(echo "$value" | tr '[:upper:]' '[:lower:]')
+              fi
+        
+              # Append key-value pair to dynamic parameters
+              dynamic_parameters="$dynamic_parameters$key=$value "
+            done
+          done <<< "${{ inputs.parameter-stacks }}"
+          
+          # Save dynamic parameters to GITHUB_ENV for later use
+          echo "dynamic-parameters=$dynamic_parameters" >> $GITHUB_ENV
+
+      # Step 5: Check if the stack exists
+      - name: Check if Stack Exists
+        id: check-stack
+        run: |
+          if aws cloudformation describe-stacks --stack-name ${{ inputs.stack-name }} > /dev/null 2>&1; then
+              echo "stack_exists=true" >> $GITHUB_ENV
+          else
+              echo "stack_exists=false" >> $GITHUB_ENV
+          fi
+
+      # Step 6: Delete the stack if it exists and the action is delete
+      - name: Delete Stack if Exists
+        if: env.stack_exists == 'true' && inputs.action == 'delete'
+        run: |
+          aws cloudformation delete-stack --stack-name ${{ inputs.stack-name }}
+          aws cloudformation wait stack-delete-complete --stack-name ${{ inputs.stack-name }}
+
+      # Step 7: Deploy the stack if the action is deploy
+      - name: Deploy Stack
+        if: ${{ inputs.action == 'deploy' }}
+        run: |
+          # Format static parameters (provided directly by the user)
+          static_parameters=$(echo "${{ env.parameter_others }}" | tr '\n' ' ')
+
+          # Retrieve dynamic parameters if they exist
+          dynamic_parameters="${{ env.dynamic-parameters || '' }}"
+
+          # Combine static and dynamic parameters into a single string
+          all_parameters="$static_parameters $dynamic_parameters"
+
+          # Log the deployment parameters (excluding sensitive data if applicable)
+          echo "Deploying stack with parameters: $all_parameters"
+
+          # Run the CloudFormation deployment
+          aws cloudformation deploy \
+              --stack-name ${{ inputs.stack-name }} \
+              --template-file ${{ inputs.template-file }} \
+              --parameter-overrides $all_parameters \
+              --capabilities CAPABILITY_NAMED_IAM || { echo "Failed to deploy stack"; exit 1; }

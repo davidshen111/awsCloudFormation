@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: S3 Buckets for CloudTrail and ALB Access Logs
+
+Resources:
+  # CloudTrail Log Bucket
+  CloudTrailLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "s3-stack-${AWS::Region}-cloudtrail-logs"
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays: 365
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # CloudTrail Bucket Policy
+  CloudTrailLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudTrailLogBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt CloudTrailLogBucket.Arn
+          - Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${CloudTrailLogBucket.Arn}/AWSLogs/${AWS::AccountId}/*"
+
+  # ALB Access Log Bucket
+  ALBAccessLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "s3-stack-${AWS::Region}-alb-access-logs"
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # ALB Access Log Bucket Policy
+  ALBAccessLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ALBAccessLogBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowALBWrite
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::127311923021:root
+            Action: s3:PutObject
+            Resource: !Sub "arn:aws:s3:::s3-stack-${AWS::Region}-alb-access-logs/*"
+
+Outputs:
+  CloudTrailLogBucketArn:
+    Description: ARN of the S3 Bucket for CloudTrail logs
+    Value: !GetAtt CloudTrailLogBucket.Arn
+  CloudTrailLogBucketName:
+    Description: Name of the S3 Bucket for CloudTrail logs
+    Value: !Ref CloudTrailLogBucket
+  ALBAccessLogBucketArn:
+    Description: ARN of the S3 Bucket for ALB access logs
+    Value: !GetAtt ALBAccessLogBucket.Arn
+  ALBAccessLogBucketName:
+    Description: Name of the S3 Bucket for ALB access logs
+    Value: !Ref ALBAccessLogBucket

@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: HTTPS Listener and Cognito Integration
+
+Parameters:
+  ALBArn:
+    Type: String
+    Description: The ARN of the ALB
+  ALBTargetGroup:
+    Type: String
+    Description: The ARN of the Target Group
+  CognitoUserPoolArn:
+    Type: String
+    Description: ARN of the Cognito User Pool
+  CognitoUserPoolClientId:
+    Type: String
+    Description: Client ID of the Cognito User Pool Client
+  CognitoUserPoolDomain:
+    Type: String
+    Description: Cognito User Pool Domain
+  CertificateArn:
+    Type: String
+    Description: Certificate Arn
+
+Resources:
+  ALBListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALBArn
+      Protocol: HTTPS
+      Port: 443
+      SslPolicy: ELBSecurityPolicy-2016-08
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: authenticate-cognito
+          Order: 1
+          AuthenticateCognitoConfig:
+            UserPoolArn: !Ref CognitoUserPoolArn
+            UserPoolClientId: !Ref CognitoUserPoolClientId
+            UserPoolDomain: !Ref CognitoUserPoolDomain
+            OnUnauthenticatedRequest: authenticate
+        - Type: forward
+          Order: 2
+          TargetGroupArn: !Ref ALBTargetGroup
+
+Outputs:
+  ALBListener:
+    Description: HTTPS Listener ARN
+    Value: !Ref ALBListenerHTTPS

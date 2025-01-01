@@ -1,0 +1,143 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECS Cluster and Services with PostgreSQL
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Deployment environment (e.g., dev, staging, prod)
+
+  VPCId:
+    Type: String
+    Description: The VPC ID
+
+  PrivateSubnetIds:
+    Type: String
+    Description: Private subnets for ECS tasks
+
+  ALBSecurityGroup:
+    Type: String
+    Description: ALB Security Group
+
+  ALBTargetGroup:
+    Type: String
+    Description: ALB Target Group
+
+  ECRApplicationRepositoryURI:
+    Type: String
+    Description: URI of the ECR Application repository
+
+  ECRPostgresRepositoryURI:
+    Type: String
+    Description: URI of the ECR DB repository
+
+  AWSAccountId:
+    Type: String
+    Description: AWS Account ID for ECR
+
+Resources:
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${EnvironmentName}-cluster"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${EnvironmentName}-tasks"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "1024"
+      Memory: "2048"
+      ExecutionRoleArn: !Sub "arn:aws:iam::${AWSAccountId}:role/ecs-task-execution-role"
+      ContainerDefinitions:
+        - Name: app-container
+          Image: !Sub "${ECRApplicationRepositoryURI}:latest"
+          Environment:
+            - Name: DB_HOST
+              Value: localhost
+            - Name: DB_USERNAME
+              Value: test
+            - Name: DB_PASSWORD
+              Value: Eric123$
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Essential: true
+        - Name: postgres-container
+          Image: !Sub "${ECRPostgresRepositoryURI}:16.6"
+          Environment:
+            - Name: POSTGRES_USER
+              Value: test
+            - Name: POSTGRES_PASSWORD
+              Value: Eric123$
+            - Name: POSTGRES_DB
+              Value: postgres
+          Essential: true
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS tasks
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        # 允许来自 ALB 的流量（HTTP）
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+        # 允许来自同一 VPC 内的流量
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.3.0/24  # 替换为 VPC 的 CIDR 范围
+
+        # 允许来自同一 VPC 内的流量
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.4.0/24  # 替换为 VPC 的 CIDR 范围
+
+      SecurityGroupEgress:
+        # 允许 ECS 出站到终端节点的通信
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ECSTaskDefinition
+      DesiredCount: 2
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 60  # 健康检查启动延迟
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split [",", !Ref PrivateSubnetIds]
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - TargetGroupArn: !Ref ALBTargetGroup
+          ContainerName: app-container
+          ContainerPort: 8080
+
+Outputs:
+  ECSClusterName:
+    Description: Name of the ECS Cluster
+    Value: !Ref ECSCluster
+
+  TaskDefinitionArn:
+    Description: Task Definition ARN
+    Value: !Ref ECSTaskDefinition
+
+  ECSServiceName:
+    Description: Name of the ECS Service
+    Value: !GetAtt ECSService.Name

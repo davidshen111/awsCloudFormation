@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Main template for the full service architecture
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: "dev"
+    Description: Deployment environment (e.g., dev, staging, prod)
+
+Resources:
+  # Network Module
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./network/vpc.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+
+  ALBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./network/alb.yaml
+      Parameters:
+        VPCId: !GetAtt VPCStack.Outputs.VPCId
+        PublicSubnetIds: !GetAtt VPCStack.Outputs.PublicSubnetIds
+
+  # Frontend Module
+  FrontendStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./frontend/s3-cloudfront.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+
+  # Backend Module
+  ECSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./backend/ecs.yaml
+      Parameters:
+        VPCId: !GetAtt VPCStack.Outputs.VPCId
+        PrivateSubnetIds: !GetAtt VPCStack.Outputs.PrivateSubnetIds
+        ALBDNS: !GetAtt ALBStack.Outputs.ALBDNS
+
+  ECRStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./registry/ecr.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+
+  CognitoStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./backend/cognito.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+
+Outputs:
+  FrontendURL:
+    Description: The CloudFront distribution URL for frontend
+    Value: !GetAtt FrontendStack.Outputs.CloudFrontURL
+
+  ECRRepositoryURI:
+    Description: The URI of the ECR repository
+    Value: !GetAtt ECRStack.Outputs.ECRRepositoryURI
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !GetAtt CognitoStack.Outputs.UserPoolId
+
+  IdentityPoolId:
+    Description: Cognito Identity Pool ID
+    Value: !GetAtt CognitoStack.Outputs.IdentityPoolId

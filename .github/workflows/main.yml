@@ -1,0 +1,151 @@
+name: Main Service Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform: deploy or delete'
+        required: true
+        default: 'deploy'
+        type: string
+      module:
+        description: 'Module to operate: '
+        required: true
+        default: ''
+        type: choice
+        options:
+          - registry
+          - s3
+          - iam
+          - network
+          - alb
+          - cognito
+          - alb-https
+          - ecs
+          - frontend
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  registry:
+    name: Registry (ECR)
+    if: ${{ inputs.module == 'registry' }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      stack-name: ecr-stack
+      template-file: ./registry/ecr.yaml
+      parameter-others: |
+        EnvironmentName=dev
+      action: deploy
+    secrets:  inherit
+
+  s3:
+    name: S3 Buckets and Policies
+    if: ${{ inputs.module == 's3' }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      stack-name: s3-stack
+      template-file: backend/s3.yaml
+      parameter-others: |
+        EnvironmentName=dev
+      action: deploy
+    secrets:  inherit
+
+  iam:
+    name: IAM Resources
+    if: ${{ inputs.module == 'iam' }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      stack-name: iam-stack
+      template-file: shared/iam-roles.yaml
+      action: deploy
+      parameter-stacks: |
+        s3-stack:ALBAccessLogBucketName
+    secrets:  inherit
+
+  network:
+    name: Network Resources
+    if: ${{ inputs.module == 'network' }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      stack-name: network-stack
+      template-file: ./network/vpc.yaml
+      parameter-others: |
+        EnvironmentName=dev
+      parameter-stacks: |
+        iam-stack:VPCFlowLogsIAMRoleArn,CloudTrailLogsRoleArn
+        s3-stack:CloudTrailLogBucketName
+      action: deploy
+    secrets:  inherit
+
+  alb:
+    name: ALB Resources
+    if: ${{ inputs.module == 'alb' }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      stack-name: alb-stack
+      template-file: ./network/alb.yaml
+      parameter-others: |
+        EnvironmentName=dev
+      parameter-stacks: |
+        network-stack:VPCId,PublicSubnetIds
+        s3-stack:ALBAccessLogBucketName
+      action: deploy
+    secrets:  inherit
+
+  cognito:
+    name: Cognito Resources
+    if: ${{ inputs.module == 'cognito' }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      stack-name: cognito-stack
+      template-file: security/cognito.yaml
+      parameter-others: |
+        EnvironmentName=dev
+      parameter-stacks: |
+        iam-stack:AdminIAMRoleArn,ViewerIAMRoleArn
+        alb-stack:ALBDNS
+      action: deploy
+    secrets:  inherit
+
+  alb-https:
+    name: ALB HTTPS Resources
+    if: ${{ inputs.module == 'alb-https' }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      stack-name: alb-https-stack
+      template-file: ./network/alb-https.yaml
+      action: deploy
+      parameter-others: "EnvironmentName=dev CertificateArn=secrets.AWS_CERTIFICATE_ARN"
+      parameter-stacks: |
+        alb-stack:ALBArn,ALBTargetGroup
+        cognito-stack:CognitoUserPoolArn,CognitoUserPoolClientId,CognitoUserPoolDomain
+    secrets:  inherit
+
+  ecs:
+    name: ECS Resources
+    if: ${{ inputs.module == 'ecs' }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      stack-name: ecs-stack
+      template-file: backend/ecs.yaml
+      action: deploy
+      parameter-others: "EnvironmentName=dev AWSAccountId=secrets.AWS_ACCOUNT_ID"
+      parameter-stacks: |
+        network-stack:VPCId,PrivateSubnetIds
+        alb-stack:ALBSecurityGroup,ALBTargetGroup
+        ecr-stack:ECRApplicationRepositoryURI,ECRPostgresRepositoryURI
+    secrets:  inherit
+
+  frontend:
+    name: Frontend Resources
+    if: ${{ inputs.module == 'frontend' }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      stack-name: frontend-stack
+      template-file: frontend/s3-cloudfront.yaml
+      action: deploy
+      parameter-others: "EnvironmentName=dev CertificateArn=secrets.AWS_CERTIFICATE_ARN"
+    secrets:  inherit
