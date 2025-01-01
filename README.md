@@ -16,11 +16,11 @@ system's design and functionality.
 
 Note: RDS is not implemented in this project; a containerized database is used instead.
 
-<img src="resources/img_11.png" alt="Pipeline Job" width="300" />
+<img src="resources/img_11.png" alt="Pipeline Job" width="400" />
 
 **system architecture diagram**
 
-<img src="resources/img_12.png" alt="Pipeline Job" width="500" />
+<img src="resources/img_12.png" alt="Pipeline Job" width="600" />
 
 **network architecture diagram**
 
